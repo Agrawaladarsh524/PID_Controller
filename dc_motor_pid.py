@@ -89,3 +89,72 @@ def print_derivation():
 
 # ----------------------------------------------------------------------
 # 2. Exact third-order pole placement (Kp, Ki, Kd together)
+# ----------------------------------------------------------------------
+
+def design_PID_full(zeta, wn, p3):
+    """Coefficient matching against (s^2+2*zeta*wn*s+wn^2)(s+p3)."""
+    c2 = 2 * zeta * wn + p3
+    c1 = wn ** 2 + 2 * zeta * wn * p3
+    c0 = wn ** 2 * p3
+    Kd = (JL * c2 - JR_BL) / Kt
+    Kp = (JL * c1 - BR_KtKe) / Kt
+    Ki = (JL * c0) / Kt
+    return Kp, Ki, Kd
+
+
+def closed_loop_poles(Kp, Ki, Kd):
+    """Actual closed-loop poles from numeric gains, via numpy -- an
+    independent check that the design formulas were applied correctly,
+    not just that the simulated curve looks plausible."""
+    import numpy as np
+    c3 = JL
+    c2 = JR_BL + Kt * Kd
+    c1 = BR_KtKe + Kt * Kp
+    c0 = Kt * Ki
+    return np.roots([c3, c2, c1, c0])
+
+
+def naive_overshoot_pct(zeta):
+    """Textbook dominant-pole-only prediction. Its ASSUMPTIONS (a clean
+    zero-free 2nd-order canonical system) do not hold for this plant,
+    which is 3rd order and has closed-loop zeros from proportional and
+    derivative action -- so the formula is not wrong, it is simply not
+    applicable here. Kept for comparison, not trusted."""
+    return 100.0 * math.exp(-zeta * math.pi / math.sqrt(1 - zeta ** 2))
+
+
+# ----------------------------------------------------------------------
+# 3. Full 2-state plant + PID controller (derivative-on-measurement)
+# ----------------------------------------------------------------------
+
+class PID:
+    def __init__(self, Kp, Ki, Kd=0.0, Vmax=Vmax, anti_windup=True):
+        self.Kp, self.Ki, self.Kd = Kp, Ki, Kd
+        self.Vmax = Vmax
+        self.anti_windup = anti_windup
+        self.integral = 0.0
+        self.prev_measurement = None
+
+    def step(self, error, measurement, dt):
+        """Derivative-on-measurement: D = -Kd * d(measurement)/dt.
+        Avoids derivative kick on a reference change by construction --
+        only the measured speed is differentiated, never the error."""
+        if self.prev_measurement is None:
+            dmeas_dt = 0.0
+        else:
+            dmeas_dt = (measurement - self.prev_measurement) / dt
+        self.prev_measurement = measurement
+
+        u_unsat = self.Kp * error + self.Ki * self.integral - self.Kd * dmeas_dt
+        u = max(-self.Vmax, min(self.Vmax, u_unsat))
+        sat_hi = u_unsat > self.Vmax
+        sat_lo = u_unsat < -self.Vmax
+        if not self.anti_windup:
+            self.integral += error * dt
+        else:
+            if not (sat_hi or sat_lo):
+                self.integral += error * dt
+            elif (sat_hi and error < 0) or (sat_lo and error > 0):
+                self.integral += error * dt
+        return u, u_unsat
+
