@@ -158,3 +158,59 @@ class PID:
                 self.integral += error * dt
         return u, u_unsat
 
+
+def closed_loop(Kp, Ki, Kd, ref_of_t, Tload_of_t, t_end, dt=2e-5,
+                 anti_windup=True, Vmax_=Vmax):
+    """Full 2-state (current, speed) closed-loop simulation.
+    Returns ts, ws, us (actual actuator signal, clamped), us_unsat (the
+    UNCLAMPED controller demand -- required to correctly detect
+    saturation; the clamped signal can never exceed Vmax by construction,
+    so checking it is a no-op), i_hist (armature current, for reporting
+    peak current since no current limit is enforced), ints."""
+    ctrl = PID(Kp, Ki, Kd, Vmax=Vmax_, anti_windup=anti_windup)
+    i, w = 0.0, 0.0
+    ts, ws, us, us_unsat, i_hist, ints = [], [], [], [], [], []
+    n = int(t_end / dt)
+    for k in range(n):
+        t = k * dt
+        ref = ref_of_t(t); Tl = Tload_of_t(t)
+        e = ref - w
+        u, u_un = ctrl.step(e, w, dt)
+        di = (u - R * i - Ke * w) / L
+        dw = (Kt * i - B * w - Tl) / J
+        i += di * dt; w += dw * dt
+        ts.append(t); ws.append(w); us.append(u); us_unsat.append(u_un)
+        i_hist.append(i); ints.append(ctrl.integral)
+    return ts, ws, us, us_unsat, i_hist, ints
+
+
+def step_reduced_model(V_of_t, Tload_of_t, t_end, dt=2e-5):
+    """First-order (L neglected) model, kept ONLY for scenario 1's plant
+    characterisation -- not used for the final controller design."""
+    Beff = B + Kt * Ke / R
+    w = 0.0
+    n = int(t_end / dt)
+    ts, ws = [], []
+    for k in range(n):
+        t = k * dt
+        V = V_of_t(t); Tl = Tload_of_t(t)
+        dw = ((Kt / R) * V - Beff * w - Tl) / J
+        w += dw * dt
+        ts.append(t); ws.append(w)
+    return ts, ws
+
+
+def step_full_model(V_of_t, Tload_of_t, t_end, dt=2e-5):
+    i, w = 0.0, 0.0
+    n = int(t_end / dt)
+    ts, ws = [], []
+    for k in range(n):
+        t = k * dt
+        V = V_of_t(t); Tl = Tload_of_t(t)
+        di = (V - R * i - Ke * w) / L
+        dw = (Kt * i - B * w - Tl) / J
+        i += di * dt; w += dw * dt
+        ts.append(t); ws.append(w)
+    return ts, ws
+
+
