@@ -214,3 +214,32 @@ def step_full_model(V_of_t, Tload_of_t, t_end, dt=2e-5):
     return ts, ws
 
 
+# ----------------------------------------------------------------------
+# 4. Metrics
+# ----------------------------------------------------------------------
+
+def measure(ts, ws, ref, band=0.02):
+    """Overshoot, 2% settling time, and rise time. Rise time is reported
+    BOTH ways (0-100% and 10-90%) since the convention is not universal
+    and an unstated choice is a fair thing to be asked about."""
+    peak = max(ws)
+    overshoot_pct = max(0.0, (peak - ref) / ref * 100.0)
+    lo, hi = ref * (1 - band), ref * (1 + band)
+    settle_t = 0.0
+    for k in range(len(ts) - 1, -1, -1):
+        if not (lo <= ws[k] <= hi):
+            settle_t = ts[min(k + 1, len(ts) - 1)]
+            break
+    rise_0_100 = None
+    for t, w in zip(ts, ws):
+        if w >= ref:
+            rise_0_100 = t
+            break
+    t10 = next((t for t, w in zip(ts, ws) if w >= 0.10 * ref), None)
+    t90 = next((t for t, w in zip(ts, ws) if w >= 0.90 * ref), None)
+    rise_10_90 = (t90 - t10) if (t10 is not None and t90 is not None) else None
+    return overshoot_pct, settle_t, rise_0_100, rise_10_90
+
+
+# ----------------------------------------------------------------------
+# 5. Search: makes "optimized" literal, not just a word in the bullet
