@@ -243,3 +243,47 @@ def measure(ts, ws, ref, band=0.02):
 
 # ----------------------------------------------------------------------
 # 5. Search: makes "optimized" literal, not just a word in the bullet
+# ----------------------------------------------------------------------
+
+SPEC_OVERSHOOT = 10.0     # %
+SPEC_SETTLING = 0.320     # s  (2% band)
+SPEC_RISE = 0.150         # s  (0-100%)
+
+ZETA, WN, P3 = 0.98, 17.0, 80.0     # shipped design
+
+
+def find_best_feasible_design(ref=5.0, dt=4e-4, verbose=False):
+    """Grid search over (zeta, wn, p3). Feasible = meets the overshoot /
+    settling / rise spec AND never actually asks the actuator for more
+    than Vmax (checked on the UNCLAMPED demand -- see closed_loop's
+    docstring for why this matters). Returns the minimum-settling-time
+    feasible design found, plus the full feasible list for reference."""
+    feasible = []
+    for zi in range(80, 100):
+        zeta = zi / 100
+        for wn in range(10, 26):
+            for p3 in range(30, 160, 5):
+                if p3 <= 2 * zeta * wn:
+                    continue
+                Kp, Ki, Kd = design_PID_full(zeta, wn, p3)
+                if Kp <= 0 or Ki <= 0 or Kd < 0:
+                    continue
+                ts, ws, us, us_unsat, i_hist, ints = closed_loop(
+                    Kp, Ki, Kd, lambda t: ref, lambda t: 0.0, 1.0, dt=dt)
+                if max(abs(x) for x in us_unsat) > Vmax:
+                    continue
+                os_, settle, rise, rise90 = measure(ts, ws, ref)
+                if os_ > SPEC_OVERSHOOT or settle > SPEC_SETTLING or \
+                   (rise is not None and rise > SPEC_RISE):
+                    continue
+                feasible.append((settle, os_, rise, zeta, wn, p3, Kp, Ki, Kd))
+    feasible.sort()
+    if verbose:
+        print(f"  search: {len(feasible)} feasible designs found")
+        for row in feasible[:5]:
+            settle, os_, rise, zeta, wn, p3, Kp, Ki, Kd = row
+            print(f"    settle={settle*1000:.1f}ms OS={os_:.2f}% "
+                  f"zeta={zeta} wn={wn} p3={p3}")
+    return feasible[0] if feasible else None, feasible
+
+
