@@ -1,0 +1,31 @@
+====================================================================
+PID GAIN TUNING FOR DC MOTOR SPEED REGULATION - RESULTS
+Primary design: zeta=0.98 wn=17.0 p3=80.0  Kp=2.4546 Ki=23.1200 Kd=0.00932
+====================================================================
+
+FIG 1  plant characterisation
+  steady-state diff = 0.001%   max transient mismatch = 4.24% of final value
+
+FIG 2  primary design meets all three named specs
+  overshoot=9.57% (<= 10.0%)   settling=314.2ms (<= 320ms)   rise(0-100%)=85.6ms  rise(10-90%)=57.4ms (<= 150ms)
+  naive dominant-pole formula predicts 0.000019% -- its assumptions don't hold for this 3rd-order system with closed-loop zeros; ratio to actual = 501,020x (5.7 orders of magnitude)
+  search-grid comparison: best feasible settling time found = 300.4ms, shipped design = 314.2ms (15 feasible designs evaluated)
+
+FIG 3  honest check: does Kd help at the deployed design point?
+  PID: OS=9.57% settle=314ms   PI-only: OS=8.80% settle=289ms
+  -> PI-only is comparable (even marginally better) here. Kd's benefit is bandwidth-dependent, shown next.
+
+FIG 4  when Kd genuinely matters (small-signal, verified unsaturated)
+  PI-only poles: ['-39.06+165.69j', '-39.06-165.69j', '-25.88+0.00j'] -- stable, effective zeta~=0.23 (stable and strongly oscillatory)
+  peak unclamped demand: PID 9.15V, PI 9.24V (both < Vmax=24.0V -- confirmed linear)
+  PID: OS=17.94%   PI-only: OS=53.97%   Kd reduces overshoot by 36.0 points
+  not the deployed design (overshoot exceeds spec, and Kp=30 saturates for any command over 0.79 rad/s)
+
+FIG 5  saturation and anti-windup
+  WITHOUT: overshoot=22.8% settle=415ms   WITH: overshoot=0.5% settle=178ms
+  peak armature current = 11.58A -- no current/torque limit is modelled, only voltage saturation; reported so the omission is visible
+
+FIG 6  disturbance rejection
+  PI residual error=0.000%   P-only residual error=20.31%
+
+====================================================================
